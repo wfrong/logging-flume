@@ -38,6 +38,7 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -242,13 +243,19 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
       Map<String, String> headers = headerTable.row(taildir.getFileGroup());
 
       for (File f : taildir.getMatchingFiles()) {
-        long inode = getInode(f);
+        long inode;
+        try {
+          inode = getInode(f);
+        } catch (NoSuchFileException e) {
+          logger.info("File has been deleted in the meantime: " + e.getMessage());
+          continue;
+        }
         TailFile tf = tailFiles.get(inode);
-        if (tf == null || !tf.getPath().equals(f.getAbsolutePath())) {
+        if (tf == null) {
           long startPos = skipToEnd ? f.length() : 0;
           tf = openFile(f, headers, inode, startPos);
         } else {
-          boolean updated = tf.getLastUpdated() < f.lastModified();
+          boolean updated = tf.getLastUpdated() < f.lastModified() || tf.getPos() != f.length();
           if (updated) {
             if (tf.getRaf() == null) {
               tf = openFile(f, headers, inode, tf.getPos());
